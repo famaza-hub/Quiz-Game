@@ -1948,20 +1948,22 @@ const allQuestions = [
   },
   ];
 
-let questions = [];
 let currentQuestion = null;
-let currentIndex = 0;
 let score = 0;
 let time = 45;
 let timer = null;
 let answered = false;
 let usedQuestionIndexes = [];
 let selectedCategoryName = "";
+let totalTarget = 0;
+let totalAnswered = 0;
+let sessionStarted = false;
+let countedCurrentQuestion = false;
 
 const categorySelect = document.getElementById("categorySelect");
 const questionCountInput = document.getElementById("questionCount");
 const nextBtn = document.querySelector("#quizBox button");
-nextBtn.innerText = "السؤال التالي";
+nextBtn.innerText = "العودة لاختيار فئة";
 nextBtn.style.display = "none";
 
 function fillCategories(){
@@ -1988,44 +1990,73 @@ function getRemainingQuestions(cat){
         .filter(q => q.category === cat && !usedQuestionIndexes.includes(q.originalIndex));
 }
 
+function getTotalRemaining(){
+    return allQuestions.length - usedQuestionIndexes.length;
+}
+
 function updateCategoryCount(){
     const cat = categorySelect.value;
     const total = allQuestions.filter(q => q.category === cat).length;
     const remaining = getRemainingQuestions(cat).length;
 
-    questionCountInput.max = Math.max(remaining, 1);
-    if(parseInt(questionCountInput.value) > remaining) questionCountInput.value = Math.max(remaining, 1);
-    if(parseInt(questionCountInput.value) < 1 || isNaN(parseInt(questionCountInput.value))) questionCountInput.value = 1;
-
-    document.getElementById("categoryCount").innerText =
-        "عدد أسئلة هذه الفئة: " + total + " | المتبقي: " + remaining;
+    if(!sessionStarted){
+        const maxAll = allQuestions.length;
+        questionCountInput.max = maxAll;
+        if(parseInt(questionCountInput.value) > maxAll) questionCountInput.value = maxAll;
+        if(parseInt(questionCountInput.value) < 1 || isNaN(parseInt(questionCountInput.value))) questionCountInput.value = 1;
+        document.getElementById("categoryCount").innerText =
+            "اختر إجمالي عدد الأسئلة للمسابقة، ثم اختر فئة في كل مرة. أسئلة هذه الفئة: " + total + " | المتبقي منها: " + remaining;
+    } else {
+        document.getElementById("categoryCount").innerText =
+            "التقدم: " + totalAnswered + " من " + totalTarget +
+            " | النتيجة: " + score +
+            " | المتبقي في هذه الفئة: " + remaining;
+    }
 }
 
 function startQuiz(){
+    if(!sessionStarted){
+        totalTarget = parseInt(questionCountInput.value);
+        if(isNaN(totalTarget) || totalTarget < 1) totalTarget = 1;
+        if(totalTarget > allQuestions.length) totalTarget = allQuestions.length;
+        questionCountInput.value = totalTarget;
+        questionCountInput.disabled = true;
+        sessionStarted = true;
+        score = 0;
+        totalAnswered = 0;
+        usedQuestionIndexes = [];
+    }
+
+    if(totalAnswered >= totalTarget){
+        showFinalResult();
+        return;
+    }
+
     selectedCategoryName = categorySelect.value;
     let remainingQuestions = getRemainingQuestions(selectedCategoryName);
 
     if(remainingQuestions.length === 0){
-        alert("انتهت أسئلة هذه الفئة، اختر فئة أخرى أو اضغط إعادة من البداية.");
+        alert("انتهت أسئلة هذه الفئة، اختر فئة أخرى.");
+        updateCategoryCount();
         return;
     }
 
-    let requestedCount = parseInt(questionCountInput.value);
-    if(isNaN(requestedCount) || requestedCount < 1) requestedCount = 1;
-    if(requestedCount > remainingQuestions.length) requestedCount = remainingQuestions.length;
+    if(getTotalRemaining() === 0){
+        showFinalResult();
+        return;
+    }
 
-    // خلط الأسئلة واختيار العدد المطلوب من نفس الفئة
-    questions = remainingQuestions.sort(() => Math.random() - 0.5).slice(0, requestedCount);
-    currentIndex = 0;
-    score = 0;
+    // اختيار سؤال واحد فقط من الفئة المختارة
+    currentQuestion = remainingQuestions.sort(() => Math.random() - 0.5)[0];
     answered = false;
+    countedCurrentQuestion = false;
 
     document.getElementById("startBox").style.display = "none";
     document.getElementById("quizBox").style.display = "block";
     document.getElementById("result").innerHTML = "";
     document.getElementById("categoryName").innerText = "الفئة: " + selectedCategoryName;
     nextBtn.style.display = "none";
-    nextBtn.innerText = "السؤال التالي";
+    nextBtn.innerText = "العودة لاختيار فئة";
 
     loadQuestion();
 }
@@ -2048,10 +2079,9 @@ function startTimer(){
 function loadQuestion(){
     clearInterval(timer);
     answered = false;
-    currentQuestion = questions[currentIndex];
     startTimer();
 
-    document.getElementById("progress").innerText = "السؤال " + (currentIndex + 1) + " من " + questions.length;
+    document.getElementById("progress").innerText = "السؤال " + (totalAnswered + 1) + " من " + totalTarget + " | النتيجة: " + score;
     document.getElementById("question").innerText = currentQuestion.question;
 
     let optionsDiv = document.getElementById("options");
@@ -2080,7 +2110,7 @@ function selectAnswer(index, selectedDiv){
     });
 
     if(index === correctIndex){
-        score = 1;
+        score++;
         document.getElementById("correctSound").play();
     } else {
         selectedDiv.classList.add("wrong");
@@ -2091,8 +2121,12 @@ function selectAnswer(index, selectedDiv){
 }
 
 function finishSingleQuestion(showButton){
-    if(currentQuestion && !usedQuestionIndexes.includes(currentQuestion.originalIndex)){
-        usedQuestionIndexes.push(currentQuestion.originalIndex);
+    if(!countedCurrentQuestion){
+        countedCurrentQuestion = true;
+        totalAnswered++;
+        if(currentQuestion && !usedQuestionIndexes.includes(currentQuestion.originalIndex)){
+            usedQuestionIndexes.push(currentQuestion.originalIndex);
+        }
     }
 
     clearInterval(timer);
@@ -2107,31 +2141,53 @@ function finishSingleQuestion(showButton){
         });
     }
 
-    nextBtn.innerText = (currentIndex + 1 < questions.length) ? "السؤال التالي" : "عرض النتيجة";
+    document.getElementById("progress").innerText = "تمت الإجابة: " + totalAnswered + " من " + totalTarget + " | النتيجة: " + score;
+
+    if(totalAnswered >= totalTarget){
+        nextBtn.innerText = "عرض النتيجة النهائية";
+    } else {
+        nextBtn.innerText = "العودة لاختيار فئة";
+    }
     nextBtn.style.display = "inline-block";
 }
 
 function nextQuestion(){
-    currentIndex++;
-    if(currentIndex < questions.length){
-        nextBtn.style.display = "none";
-        loadQuestion();
-    }else{
-        showResult();
+    if(totalAnswered >= totalTarget){
+        showFinalResult();
+    } else {
+        returnToCategories();
     }
 }
 
-function showResult(){
+function returnToCategories(){
     clearInterval(timer);
+    document.getElementById("startBox").style.display = "block";
+    document.getElementById("quizBox").style.display = "none";
+    document.getElementById("result").innerHTML = "";
+    nextBtn.style.display = "none";
+    updateCategoryCount();
+}
+
+function showFinalResult(){
+    clearInterval(timer);
+    document.getElementById("startBox").style.display = "none";
     document.getElementById("quizBox").style.display = "none";
     document.getElementById("result").innerHTML =
-        "🏆 نتيجتك: " + score + " / " + questions.length +
-        "<br><button onclick='restartQuiz()'>العودة لاختيار فئة</button>";
+        "🏆 النتيجة النهائية: " + score + " / " + totalTarget +
+        "<br><button onclick='restartQuiz()'>بدء مسابقة جديدة</button>";
     document.getElementById("winSound").play();
 }
 
 function restartQuiz(){
     clearInterval(timer);
+    score = 0;
+    totalAnswered = 0;
+    totalTarget = 0;
+    sessionStarted = false;
+    usedQuestionIndexes = [];
+    currentQuestion = null;
+    countedCurrentQuestion = false;
+    questionCountInput.disabled = false;
     document.getElementById("result").innerHTML = "";
     document.getElementById("startBox").style.display = "block";
     document.getElementById("quizBox").style.display = "none";
@@ -2140,15 +2196,22 @@ function restartQuiz(){
 }
 
 function resetAllQuestions(){
-    usedQuestionIndexes = [];
-    updateCategoryCount();
-    alert("تمت إعادة جميع الأسئلة من البداية");
+    restartQuiz();
+    alert("تمت إعادة المسابقة من البداية");
 }
 
-// زر بسيط لإعادة الأسئلة من البداية بدون تغيير التصميم كثيرًا
+// تعديل نصوص البداية بدون تغيير التصميم كثيرًا
+const infoText = document.querySelector("#startBox .info");
+if(infoText) infoText.innerText = "اختر إجمالي عدد الأسئلة، ثم اختر فئة لكل سؤال";
+const countLabel = document.querySelector("label[for='questionCount']");
+if(countLabel) countLabel.innerText = "إجمالي عدد الأسئلة:";
+const startBtn = document.querySelector("#startBox button");
+if(startBtn) startBtn.innerText = "اعرض سؤال من الفئة";
+
+// زر بسيط لإعادة المسابقة من البداية بدون تغيير التصميم كثيرًا
 const resetBtn = document.createElement("button");
 resetBtn.className = "secondary";
-resetBtn.innerText = "إعادة جميع الأسئلة";
+resetBtn.innerText = "إعادة من البداية";
 resetBtn.onclick = resetAllQuestions;
 document.getElementById("startBox").appendChild(document.createElement("br"));
 document.getElementById("startBox").appendChild(resetBtn);
